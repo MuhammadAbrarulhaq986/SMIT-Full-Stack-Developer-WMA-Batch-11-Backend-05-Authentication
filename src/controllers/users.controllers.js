@@ -1,96 +1,91 @@
-import User from "../models/users.models.js"
-import jwt from "jsonwebtoken"
-import bcrypt from "bcrypt"
+import User from "../models/users.models.js";
+import jwt from "jsonwebtoken";
+import bcrypt from "bcrypt";
 
 const generateAccessToken = (user) => {
     return jwt.sign({ email: user.email }, process.env.ACCESS_JWT_SECRET, {
         expiresIn: "6h",
     });
 };
+
 const generateRefreshToken = (user) => {
     return jwt.sign({ email: user.email }, process.env.REFRESH_JWT_SECRET, {
         expiresIn: "7d",
     });
 };
 
-
 // Todo Register user 
 const registerUser = async (req, res) => {
     const { email, password } = req.body;
 
-    if (!email) return res.status(400).json({ message: "Email is Requried " });
-    if (!password) return res.status(400).json({ message: "Password is Requried " });
+    if (!email) return res.status(400).json({ message: "Email is Required" });
+    if (!password) return res.status(400).json({ message: "Password is Required" });
 
-    const user = await User.findOne({ email: email });
-    if (user) return res.status(401).json({ message: "Usser already exist" })
+    const existingUser = await User.findOne({ email });
+    if (existingUser) return res.status(401).json({ message: "User  already exists" });
+
+    // Hash the password before saving
+    const hashedPassword = await bcrypt.hash(password, 10);
 
     const createUser = await User.create({
         email,
-        password,
+        password: hashedPassword,
     });
-    res.json({ message: 'User registered successfully', data: createUser });
+    res.json({ message: 'User  registered successfully', data: createUser });
 };
 
-
-//Todo Login user 
+// Todo Login user 
 const loginUser = async (req, res) => {
     const { email, password } = req.body;
-    if (!email) return res.status(400).json({ message: 'Email is Required' })
-    if (!password) return res.status(400).json({ message: 'Password is Required' })
+    if (!email) return res.status(400).json({ message: 'Email is Required' });
+    if (!password) return res.status(400).json({ message: 'Password is Required' });
 
-    //* CHECK IF THE EMAIL IS PRESENT OR NOT
-    const user = await User.findOne({ email })
-    if (!user) return res.status(404).json({ message: "no user found" });
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ message: "No user found" });
 
-    //* COMPARE THE PASSWORD WITH THE BCRYPT ONE
-    //! await IS NOT NOT WORKING HERE  
-    // * const isValidPassword = await bcrypt.compare(password, user.password); 
-    const isValidPassword = bcrypt.compare(password, user.password);
-    if (!isValidPassword) return res.status(400).json({ message: "Incorrect password" })
+    // Await the password comparison
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    if (!isValidPassword) return res.status(400).json({ message: "Incorrect password" });
 
-
-    //* GENERATE TOKEN 
+    // Generate tokens
     const accessToken = generateAccessToken(user);
-    const refreshToken = generateRefreshToken(user); //* WITHOUT refreshToken EXPORTED IT WILL CRACHES 
+    const refreshToken = generateRefreshToken(user);
 
-
-    //* ADDING COOKIES
-    //* IN PRODUCTION WE CHANGE THIS TO ( true ) secure: false 
-    //! res.cookie("refreshToken", refreshToken, { http: true, secure: false });
-    res.cookie("refreshToken", refreshToken, { http: true, secure: false }); //* WITHOUT refreshToken EXPORTED IT WILL CRACHES
-    //* { http: true, secure: false }: These are options for the cookie: 
+    // Set the refresh token in cookies
+    res.cookie("refreshToken", refreshToken, { httpOnly: true, secure: false });
 
     res.json({
-        message: "User loggedIn successfully",
+        message: "User  logged in successfully",
         accessToken,
-        refreshToken, //* WITHOUT refreshToken EXPORTED IT WILL CRACHES
+        refreshToken, // Include refresh token in the response if needed
         data: user,
-    })
-}
+    });
+};
 
-// Todo  logout User
+// Todo Logout User
 const logoutUser = async (req, res) => {
     res.clearCookie("refreshToken");
-    res.json({ message: "User logout successfully" });
-}
+    res.json({ message: "User  logged out successfully" });
+};
 
-// Todo  refresh Token
+// Todo Refresh Token
 const refreshToken = async (req, res) => {
     const refreshToken = req.cookies.refreshToken || req.body.refreshToken;
     if (!refreshToken) return res.status(401).json({ message: "No refresh token found!" });
 
-    const decodedToken = jwt.verify(refreshToken, process.env.REFRESH_JWT_SECRET);
-    const user = await User.findOne({ email: decodedToken.email });
+    try {
+        const decodedToken = jwt.verify(refreshToken, process.env.REFRESH_JWT_SECRET);
+        const user = await User.findOne({ email: decodedToken.email });
 
-    if (!user) return res.status(404).json({ message: "Invalid token" });
+        if (!user) return res.status(404).json({ message: "Invalid token" });
 
-    const generateToken = generateAccessToken(user);
-    res.json({ message: "Access token generated", accessToken: generateToken });
+        const newAccessToken = generateAccessToken(user);
+        res.json({ message: "Access token generated", accessToken: newAccessToken });
+    } catch (error) {
+        return res.status(403).json({ message: "Invalid refresh token", error: error.message });
+    }
+};
 
-    res.json({ decodedToken })
-}
-
-
-// Todo  authenticate user middleware
+// Todo authenticate user middleware
 
 export { registerUser, loginUser, logoutUser, refreshToken };
