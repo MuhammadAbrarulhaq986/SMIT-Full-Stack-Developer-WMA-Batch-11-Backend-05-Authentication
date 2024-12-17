@@ -7,85 +7,94 @@ const generateAccessToken = (user) => {
         expiresIn: "6h",
     });
 };
-
 const generateRefreshToken = (user) => {
     return jwt.sign({ email: user.email }, process.env.REFRESH_JWT_SECRET, {
         expiresIn: "7d",
     });
 };
 
-// Todo Register user 
+//* register user
+
 const registerUser = async (req, res) => {
     const { email, password } = req.body;
 
-    if (!email) return res.status(400).json({ message: "Email is Required" });
-    if (!password) return res.status(400).json({ message: "Password is Required" });
+    if (!email) return res.status(400).json({ message: "email required" });
+    if (!password) return res.status(400).json({ message: "password required" });
 
-    const existingUser = await User.findOne({ email });
-    if (existingUser) return res.status(401).json({ message: "User  already exists" });
-
-    // Hash the password before saving
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = await User.findOne({ email: email });
+    if (user) return res.status(401).json({ message: "user already exist" });
 
     const createUser = await User.create({
         email,
-        password: hashedPassword,
+        password,
     });
-    res.json({ message: 'User  registered successfully', data: createUser });
+    res.json({ message: "user registered successfully", data: createUser });
 };
 
-// Todo Login user 
+//* login user
+
 const loginUser = async (req, res) => {
     const { email, password } = req.body;
-    if (!email) return res.status(400).json({ message: 'Email is Required' });
-    if (!password) return res.status(400).json({ message: 'Password is Required' });
 
+    if (!email) return res.status(400).json({ message: "email required" });
+    if (!password) return res.status(400).json({ message: "password required" });
+    //* email mujood ha bhi ya nahi ha
     const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ message: "No user found" });
+    if (!user) return res.status(404).json({ message: "no user found" });
+    //* password compare krwayenga bcrypt
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid)
+        return res.status(400).json({ message: "incorrect password" });
 
-    // Await the password comparison
-    const isValidPassword = await bcrypt.compare(password, user.password);
-    if (!isValidPassword) return res.status(400).json({ message: "Incorrect password" });
-
-    // Generate tokens
+    //* token generate
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
-    // Set the refresh token in cookies
-    res.cookie("refreshToken", refreshToken, { httpOnly: true, secure: false });
+    //* cookies
+    res.cookie("refreshToken", refreshToken, { http: true, secure: false });
 
     res.json({
-        message: "User  logged in successfully",
+        message: "user loggedIn successfully",
         accessToken,
-        refreshToken, // Include refresh token in the response if needed
+        refreshToken,
         data: user,
     });
 };
 
-// Todo Logout User
+//* logout user
 const logoutUser = async (req, res) => {
     res.clearCookie("refreshToken");
-    res.json({ message: "User  logged out successfully" });
+    res.json({ message: "user logout successfully" });
 };
 
-// Todo Refresh Token
+//* refreshtoken
 const refreshToken = async (req, res) => {
     const refreshToken = req.cookies.refreshToken || req.body.refreshToken;
-    if (!refreshToken) return res.status(401).json({ message: "No refresh token found!" });
+    if (!refreshToken)
+        return res.status(401).json({ message: "no refresh token found!" });
 
-    try {
-        const decodedToken = jwt.verify(refreshToken, process.env.REFRESH_JWT_SECRET);
-        const user = await User.findOne({ email: decodedToken.email });
+    const decodedToken = jwt.verify(refreshToken, process.env.REFRESH_JWT_SECRET);
 
-        if (!user) return res.status(404).json({ message: "Invalid token" });
+    const user = await User.findOne({ email: decodedToken.email });
 
-        const newAccessToken = generateAccessToken(user);
-        res.json({ message: "Access token generated", accessToken: newAccessToken });
-    } catch (error) {
-        return res.status(403).json({ message: "Invalid refresh token", error: error.message });
-    }
+    if (!user) return res.status(404).json({ message: "invalid token" });
+
+    const generateToken = generateAccessToken(user);
+    res.json({ message: "access token generated", accesstoken: generateToken });
+
+    res.json({ decodedToken });
 };
 
-// Todo authenticate user middleware
+//* authenticate user middleware
+const authenticateUser = async (req, res, next) => {
+    const token = req.headers["authorization"];
+    if (!token) return res.status(404).json({ message: "no token found" });
 
-export { registerUser, loginUser, logoutUser, refreshToken };
+    jwt.verify(token, process.env.ACCESS_JWT_SECRET, (err, user) => {
+        if (err) return res.status(403).json({ message: "invalid token" });
+        req.user = user;
+        next();
+    });
+};
+
+export { registerUser, loginUser, logoutUser, refreshToken, authenticateUser };
